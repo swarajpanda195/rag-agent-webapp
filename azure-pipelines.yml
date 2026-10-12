@@ -1,0 +1,64 @@
+# Build the container image in ACR and deploy it to the private Container App.
+# Runs on the self-hosted agent installed on the jumpbox (inside the VNet).
+
+trigger:
+  branches:
+    include: [ main ]
+
+pool:
+  name: pool-jumpbox
+
+variables:
+  azureServiceConnection: sc-ragagent-prv
+  resourceGroup: rg-ragagent-prv-jpe
+  acrName: crragagentprvjpe
+  containerApp: ca-ragagent-prv-jpe
+  imageName: rag-agent-webapp
+  imageTag: $(Build.BuildId)
+  # Set these two as pipeline variables (Pipelines > Edit > Variables):
+  #   projectEndpoint  e.g. https://aif-ragagent-prv-jpe.services.ai.azure.com/api/projects/proj-ragagent-prv
+  #   agentId          e.g. asst_xxxxxxxx
+
+stages:
+- stage: Build
+  jobs:
+  - job: build
+    displayName: Build image in ACR
+    steps:
+    - task: AzureCLI@2
+      displayName: az acr build
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: ps
+        scriptLocation: inlineScript
+        inlineScript: |
+          $env:PYTHONIOENCODING = "utf-8"
+          az acr build --registry $(acrName) --image "$(imageName):$(imageTag)" --file Dockerfile .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - deployment: deploy
+    displayName: Deploy to Container App
+    environment: lab
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureCLI@2
+            displayName: Update Container App
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: ps
+              scriptLocation: inlineScript
+              inlineScript: |
+                az containerapp ingress update -g $(resourceGroup) -n $(containerApp) --target-port 8000 -o none
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                az containerapp update -g $(resourceGroup) -n $(containerApp) `
+                  --image "$(acrName).azurecr.io/$(imageName):$(imageTag)" `
+                  --revision-suffix "b$(imageTag)" `
+                  --set-env-vars "PROJECT_ENDPOINT=$(projectEndpoint)" "AGENT_ID=$(agentId)" -o none
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                az containerapp revision list -g $(resourceGroup) -n $(containerApp) `
+                  --query "[?properties.active].{revision:name, health:properties.healthState, state:properties.runningState}" -o table

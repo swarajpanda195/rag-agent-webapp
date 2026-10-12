@@ -1,0 +1,7 @@
+.git
+.venv
+__pycache__
+*.pyc
+scripts
+azure-pipelines.yml
+README.md

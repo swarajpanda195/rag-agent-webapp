@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Product Support Assistant</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: #f4f6f8; }
+    header { background: #0f6cbd; color: #fff; padding: 14px 20px; font-size: 18px; }
+    #log { max-width: 820px; margin: 16px auto; padding: 0 16px; }
+    .msg { padding: 10px 14px; border-radius: 8px; margin: 8px 0; white-space: pre-wrap; }
+    .user { background: #dbeafe; margin-left: 80px; }
+    .bot { background: #fff; border: 1px solid #ddd; margin-right: 80px; }
+    .cite { color: #555; font-size: 12px; margin-top: 6px; }
+    form { max-width: 820px; margin: 0 auto 24px; padding: 0 16px; display: flex; gap: 8px; }
+    input { flex: 1; padding: 10px; font-size: 15px; }
+    button { padding: 10px 18px; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <header>Product Support Assistant</header>
+  <div id="log"></div>
+  <form id="f">
+    <input id="q" placeholder="Ask about the appliance, error codes, spare parts..." autocomplete="off">
+    <button>Send</button>
+  </form>
+  <script>
+    let threadId = null;
+    const log = document.getElementById("log");
+    function add(text, cls, cites) {
+      const d = document.createElement("div");
+      d.className = "msg " + cls;
+      d.textContent = text;
+      if (cites && cites.length) {
+        const c = document.createElement("div");
+        c.className = "cite";
+        c.textContent = "Sources: " + cites.join(", ");
+        d.appendChild(c);
+      }
+      log.appendChild(d);
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+    document.getElementById("f").onsubmit = async (e) => {
+      e.preventDefault();
+      const q = document.getElementById("q");
+      const message = q.value.trim();
+      if (!message) return;
+      q.value = "";
+      add(message, "user");
+      add("Thinking...", "bot");
+      const pending = log.lastChild;
+      try {
+        const r = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, thread_id: threadId })
+        });
+        const data = await r.json();
+        pending.remove();
+        if (!r.ok) { add("Error: " + (data.detail || r.status), "bot"); return; }
+        threadId = data.thread_id;
+        add(data.answer, "bot", data.citations);
+      } catch (err) {
+        pending.remove();
+        add("Error: " + err, "bot");
+      }
+    };
+  </script>
+</body>
+</html>
